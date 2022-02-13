@@ -1,0 +1,247 @@
+---
+title: "Study notes on data.table"
+output:
+  html_document:
+    toc: true
+    toc_float: 
+      collapsed: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(bikeshare14)
+batrips <- as.data.table(batrips)
+```
+
+## Creating a data.table
+
+A data table can be created using `data.table()` or `as.data.table()`. `example("data.table")` runs the examples section of `?data.table`.
+
+```{r new_tbl}
+X <- data.table(id = c("a", "b", "c"), value = c(0.5, 1.0, 1.5))
+```
+
+## Bikes data example
+
+The `batrips` dataset from the `bikeshare14` package contains anonymous bike share data on bicycle trips around San Francisco in 2014. 
+
+```{r explore, echo=FALSE}
+first_eight<-head(batrips,8)
+structure<-str(batrips)
+```
+
+### 1. Filtering rows in a data.table
+ * `.N` is an integer value that contains the number of rows in the data.table. `Batrips[.N]` returns the last row.
+ 
+ * Logical expressions: `batrips[start_terminal==58 & ent_terminal!=65]`
+ 
+ * `%like%` looks for rows that matches a pattern e.g. `batrips[start_station %like% ^San Francisco]` looks for all the rows where start_station starts with the string San Francisco. The meta-character caret (^) specifies that you are looking for a pattern at the beginning of a string; `%between%` works on numerical columns and searches on the closed interval `c(var1,var2)`; `%chin%` is an efficient version of `%in%` but only for characters.
+
+```{r filter}
+x <- c("aaba", "aaba", "baca")
+
+# Search for "aa" anywhere in the string
+x %like% "aa"
+
+# Search for "ba" at the end of a string
+x %like% "ba$"
+```
+
+### 2. Selecting columns from a data.table
+
+* If you want to select only one column, you can choose to return the result as a 1-column data table or a vector. Wrapping the column name within `list()` always returns a data table like `batrips[,list(trip_id)]`, or `batrips[,.(trip_id)]`, or `batrips[,'trip_id']`. If you provide just a single column name in "j", it will return a vector like `batrips[,trip_id]`.
+
+### 3. Computing on columns the data.table way
+
+* Operates on both rows and columns: `batrips[end_station=="Market at 10th",median (duration)]`, `batrips[, .(difftime(end_date,start_date))]`.
+
+* Combine multiple computations: `batrips[end_station=="Market at 10th",.(med_dur=median (duration),mn_dur=mean(duration))]`
+
+* Additionally, you can also specify `plot()`, `hist()` or any other plotting functions in the j argument. E.g. `batrips[start_station == "Townsend at 7th" & duration < 500, hist(duration)]`.
+
+```{r plots,echo=FALSE,results='hide',fig.keep='all'}
+batrips <- as.data.table(batrips)
+batrips[start_station == "Townsend at 7th" & duration < 500, hist(duration)]
+```
+
+### 4. Computations by groups
+
+* How many trips happened at each station? `batrips[,.N,by="start_station"]` is the same as `batrips[,.(no_trips=.N),by=.(start=start_station)]` - note that the `.()` allows naming on the fly as well as computation on the fly: `batrips[,.(no_trips=.N),by=.(start=start_station,mon=month(start_date))]`
+
+```{r by_multi_cols}
+# Compute the mean duration for every start and end station
+mean_station <- batrips[, .(mean_duration=mean(duration)), by = .(start_station, end_station)]
+```
+
+* Compute mean of duration and total trips grouped by start and end stations
+`aggregate_mean_trips <- batrips[, .(mean_duration=mean(duration),total_trips=.N),by=.(start_station,end_station)]`
+
+### 5. Chaining data.table expressions
+
+* You can chain expressions together by adding `[]` to the end of the expression: `batrips[,.N,by=.(start_station,end_station)][order(N,decreasing = TRUE)]`. For example, top five most popular routes are given by `batrips[, .(n_trips=.N), by = "end_station"][order(n_trips,decreasing = TRUE)][head(1:5)]`.
+
+```{r most_popular_destination_from_each_start,echo=TRUE}
+#create a data set that consists of the total number of trips grouped by start_station and end_station in decreasing order
+trips_dec <- batrips[, 
+                     .(n_trips=.N), 
+                     by = c("start_station","end_station")][
+                        order(n_trips,decreasing = TRUE)]
+
+#group the data set by start_station and extract the first end_station
+popular_end_station <- trips_dec[,
+                                 .(most_popular_end_station=head(end_station,1)),
+                                 by="start_station"]
+
+knitr::kable(head(popular_end_station,10), caption = "Most popular end station for each start station")
+```
+
+* `data.table` first filters the rows in `i`, and then groups the rows using `by`, and finally compute the expression in `j`.
+
+```{r first and last ride for each station}
+# Find the first and last ride for each start_station
+first_last <- batrips[order(start_date), 
+                      .(start_date = start_date[c(1,.N)]), 
+                      by = 'start_station']
+knitr::kable(head(first_last,10), caption = "First and last ride for each station")
+```
+
+* `uniqueN()`can be a very handy function, particularly when used with the "by" argument of data table. `uniqueN()` returns the number of unique elements in a column/vector/data.table.
+
+
+### 6. Computations in j using .SD
+
+* `.SD` stands for a subset of data. `.SDcols` holds the columns that should be included in `.SD`.
+
+* For each month, find the row corresponding to the shortest trip.
+
+```{r}
+relevant_cols <- c("start_station", "end_station", 
+                   "start_date", "end_date", "duration")
+
+# Find the row corresponding to the shortest trip per month
+shortest <- batrips[, .SD[which.min(duration)], 
+                    by = month(start_date), 
+                    .SDcols = relevant_cols]
+
+# Note that the following will not work as 1. it does not return the required fields, 2. it keeps all values of duration rather than just the minimum.
+shortest2 <- batrips[, .(which.min(duration),duration), 
+                    by = month(start_date)]
+
+knitr::kable(shortest,caption = 'Row corresponding to the shortest trip')
+```
+
+* You can also apply a single function to every column specified in `.SDcols` using `lapply()`. For instance, to calculate the number of unique start stations and zip codes for each month using `uniqueN()`:
+
+Note: `DT[, lapply(.SD, fun), by = .(col1, col2, ...), .SDcols = c("sd_col1", "sd_col2")]` applies `fun` on each column of `.SD` as specified under `.SDcols`, for each group.
+
+
+```{r}
+# Find the total number of unique start stations and zip codes per month
+unique_station_month <- batrips[, lapply(.SD, uniqueN), 
+                                by = month(start_date), 
+                                .SDcols = c('start_station', 'zip_code')]
+knitr::kable(unique_station_month)
+```
+
+### 7. Adding and updating columns by reference ':='
+
+* LHS := RHS form
+
+There are two ways of using data table's colon equal to operator. The first is the left-hand-side colon equal to right-hand-side form. It takes a character vector of column names on the left-hand-side of the ":=" operator and a LIST of values on the right-hand-side of the ":=" operator, corresponding to each of the column names. For example, `batrips[,c('is_dur_gt_1hour','week_day'):=list(duration>3600,wday(start_date))]` adds 2 columns to the original data table. The first one is `TRUE` if the duration is greater than 1 hour and the second is the weekday of each trip. For convenience, you can skip the quotes around column names on the left-hand-side if a single column is added or updated. 
+
+* Functional form
+
+The second way of using the `:=` operator is the functional form. It takes the form "col1 = val1", "col2 = val2" etc.. as arguments to function `:=()`. Note that when you are using operators as functions, they need to **be wrapped inside backticks**. Assigning NULL to a column deletes that column by reference. In the following example **batrips[,`:=`(is_dur_gt_1hour=NULL, start_station=toupper(start_station))]**, "is_dur_gt_1hour" column is deleted and, "start_station" column is updated by reference to all upper case. 
+
+* This can be handy to fix data quality issues: `untidy[,start_station:=ifelse(start_station=='Sen Francicso City Hall','San Francisco City Hall',start_station)]`.
+
+### 8. Grouped aggregations
+
+* `batrips[,n_zip_code := .N, by=zip_code]` when you update a data table by reference, it is updated silently. Nothing is printed to the console. To view the results as soon you update a data table by reference, you can simply chain a pair of empty square brackets, which will print the updated data table.. `batrips[,n_zip_code := .N, by=zip_code][]`.
+
+* A common pattern in data analysis is that you often need to add intermediate columns to get to the final result, but don't necessarily need them in the final result. `zip_1000<-batrips[,n_zip_code:=.N, by=zip_code][n_zip_code>1000][,n_zip_code:=NULL]`
+
+```{r}
+#these lines will add columns to the data set but not recude the total number of rows.
+batrips[, trips_N:=.N, by = start_station]
+batrips[, duration_mean:=mean(duration), by = c('start_station','end_station')]
+```
+
+* Hint: when calculating the mean, don't forget to set the `na.rm` to `TRUE`.
+
+* Interestingly the following two expressions return the same outcome despite differences in the syntax of the second square bracket:
+
+```{r eval=FALSE}
+# expression 1
+batrips_new[, mean_dur := mean(duration, na.rm = TRUE), 
+            by = month(start_date)][is.na(duration), 
+                                    duration := mean_dur]
+
+# expression 2
+batrips_new[, mean_dur := mean(duration, na.rm = TRUE), 
+            by = month(start_date)][, 
+                          duration:=ifelse(is.na(duration),mean_dur,duration)]
+```
+
+* The *j* argument can handle multi-line functions. 
+
+```{r}
+
+batrips[,trip_category:={
+  med_dur=median(duration, na.rm=TRUE)
+  if(med_dur<600) "short"
+  else if (med_dur>=600 & med_dur<=1800) "medium"
+  else "long"
+},
+  by = .(start_station,end_station)]
+
+colnames(batrips)
+batrips[1:3,.(duration,trip_category)]
+```
+
+## Importing and Exporting Data
+
+### 1. Fast data reading with fread()
+
+* The `nrow` argument specifies the total number of rows to be imported excluding the header row. The `skip` argument also takes an integer as input and skips that many number of lines before attempting to parse the file. The `skip` argument can also take a string as input. In this case, `fread()` searches for the first exact occurrence of that string and parses the file from the line that string occurs.
+
+* Arguments `select` and `drop` allow you to control which columns are included. e.g. `fread(str,select = c("a","c")) ` or `fread(str,select = c(1,3)) `.
+
+* If you don't want to rely on `fread()`'s default column guessing, `colClasses` argument can be used to override the column types. `colClasses` can be a named (e.g. `fread(str,colClasses=c(var5='factor'))`) or unnamed vector (e.g. `fread(str, colClasses=c('integer','numeric','factor')`) of column classes similar to read dot csv. In addition, you can also provide a named list of vectors where names correspond to the column class and values correspond to the column names or numbers, e.g. `fread(str, colClasses=list(numeric=1:4,factor=c('var5','var6')))`. 
+
+* When you set `fill` to `TRUE`, `fread()` can `fill` empty values with empty strings. Empty values for integer, logical and numeric types are filled with NA.
+
+* You can use the `na.strings` argument to parse values as NAs. For example: 
+
+```{r}
+str <- 'x,y,z\n1,###,3\n2,4,999\n#NA,7,9'
+fread(str,na.strings = c('###','#NA','999'))
+```
+
+### 2. Fast data writing with fwrite()
+
+* Similar to `fread()`, `fwrite()` uses all available threads to write to file by default. It also has the ability to write columns of type **list** by flattening the list column with the symbol for the OR operator ("|") by default.
+
+* Date and datetime columns: `fwrite()` also provides multiple ways to write date and datetime columns using the argument `dateTimeAs` which defaults to the **ISO format**. This results in representing datetime values in international standard thereby avoiding ambiguity while writing to or reading back from file.
+
+* `as.IDate` and `as.ITime` functions extract the relevant portions from teh timestamp.
+
+```{r}
+now <- Sys.time()
+dt <- data.table(date=as.IDate(now),
+                 time=as.ITime(now),
+                 datetime=now)
+knitr::kable(dt)
+```
+
+* Setting the dateTimeAs argument to squash removes the hyphen (-) and colon (:) separators. Thus, the columns are read back by default as integers. 
+
+```{r}
+fwrite(dt, "datetime.csv",dateTimeAs = "squash")
+fread("datetime.csv")
+```
+ 
+* Setting the dateTimeAs argument to epoch counts the number of days or seconds since the relevant epoch which is Jan 1, 1970, midnight, and Jan 1, 1970 midnight for date, time and datetime, respectively. 
+
+* The options "iso", "squash" and "epoch" are all extremely fast due to specialized C code and are extensively tested for correctness and also allow for unambiguous and fast reading of those columns.
