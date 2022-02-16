@@ -245,3 +245,7 @@ fread("datetime.csv")
 * Setting the dateTimeAs argument to epoch counts the number of days or seconds since the relevant epoch which is Jan 1, 1970, midnight, and Jan 1, 1970 midnight for date, time and datetime, respectively. 
 
 * The options "iso", "squash" and "epoch" are all extremely fast due to specialized C code and are extensively tested for correctness and also allow for unambiguous and fast reading of those columns.
+
+## Useful tips and resources
+
+-   This [FAQ page](https://cran.r-project.org/web/packages/data.table/vignettes/datatable-faq.html) has some useful information on a wide rage of topics
