@@ -246,6 +246,35 @@ fread("datetime.csv")
 
 * The options "iso", "squash" and "epoch" are all extremely fast due to specialized C code and are extensively tested for correctness and also allow for unambiguous and fast reading of those columns.
 
+## Flagging a subset of data within a larger data set
+```{r}
+set.seed(42)
+big <- data.table( 
+    id = LETTERS[2:11],
+    a = sample(101:105, 10, replace = TRUE),
+    b = sample(200:300, 10)
+)
+small <- data.table(
+    id = LETTERS[1:5],
+    y = sample(1:5, 5, replace = TRUE),
+    z = sample(10:20, 5) 
+)
+```
+big[small, on = .(id),`:=` (flag    = 1L)]
+
+   id   a   b flag
+ 1:  B 102 298    1
+ 2:  C 104 287    1
+ 3:  D 104 286    1
+ 4:  E 102 248    1
+ 5:  F 105 225   NA
+ 6:  G 104 205   NA
+ 7:  H 105 295   NA
+ 8:  I 104 201   NA
+ 9:  J 102 202   NA
+10:  K 102 220   NA
+
+
 ## Useful tips and resources
 
 -   This [FAQ page](https://cran.r-project.org/web/packages/data.table/vignettes/datatable-faq.html) has some useful information on a wide rage of topics
